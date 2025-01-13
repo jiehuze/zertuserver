@@ -1,0 +1,1 @@
+./zertuserver $RUN_MODE
