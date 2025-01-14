@@ -3,8 +3,10 @@ module zertuserver
 go 1.20
 
 require (
+	github.com/eclipse/paho.mqtt.golang v1.2.0
 	github.com/go-redsync/redsync/v4 v4.8.1
 	github.com/goburrow/modbus v0.1.0
+	github.com/hashicorp/go-multierror v1.1.1
 	github.com/redis/go-redis/v9 v9.0.5
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.16.0
@@ -40,7 +42,6 @@ require (
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/google/pprof v0.0.0-20210407192527-94a9f03dee38 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
-	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
 	github.com/leodido/go-urn v1.2.4 // indirect

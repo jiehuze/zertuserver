@@ -3,6 +3,7 @@ package routers
 import (
 	"net/http"
 	"zertuserver/internal/app/controllers"
+	v1 "zertuserver/internal/app/controllers/v1"
 
 	"sync"
 
@@ -29,6 +30,13 @@ func SetUp() *gin.Engine {
 
 		mainGroup := g.Group("/zertu")
 		mainGroup.GET("/health", controllers.Health)
+
+		wifiGroup := mainGroup.Group("/wifi")
+		wifiGroup.POST("/setting", v1.WifiSetting)
+
+		hydrologyGroup := mainGroup.Group("/hydrology")
+		hydrologyGroup.GET("/direct", v1.HydrologyDeviceDirect)
+		hydrologyGroup.GET("/data", v1.HydrologyBaseData)
 
 	})
 

@@ -8,13 +8,10 @@ import (
 )
 
 var initOnce sync.Once
-var (
-	
-)
+var ()
 
 func Init() {
 	initOnce.Do(func() {
-		
 	})
 }
 

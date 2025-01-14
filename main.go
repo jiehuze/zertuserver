@@ -36,10 +36,10 @@ func main() {
 	config.Init(runMode)
 	storage.Init()
 	services.Init()
-	//err2 := servers.RtuServer().Start()
-	//if nil != err2 {
-	//	panic(err2)
-	//}
+	err2 := services.RtuService().Start()
+	if nil != err2 {
+		panic(err2)
+	}
 	go func() {
 		err := servers.ApiServer().Start()
 		if nil != err && err != http.ErrServerClosed {
@@ -55,5 +55,5 @@ func main() {
 
 func doQuit() {
 	_ = servers.ApiServer().Stop()
-	_ = servers.RtuServer().Stop()
+	_ = services.RtuService().Stop()
 }
