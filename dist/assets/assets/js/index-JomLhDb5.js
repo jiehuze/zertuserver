@@ -1,0 +1,1 @@
+import{h as r,k as e,J as s}from"./.pnpm-m9xz9NSi.js";const t=()=>{const t=r();return e.jsxs("div",{children:[e.jsx("p",{style:{marginBottom:"20px"},children:"层级模式"}),e.jsx(s,{type:"primary",onClick:()=>t("/feat/breadcrumb/children/detail"),children:"跳转层级详情页"})]})};export{t as default};

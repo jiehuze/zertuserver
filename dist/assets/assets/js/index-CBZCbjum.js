@@ -1,0 +1,1 @@
+import{h as r,k as t,J as s}from"./.pnpm-m9xz9NSi.js";const a=()=>{const a=r();return t.jsxs("div",{children:[t.jsx("div",{style:{marginBottom:"20px"},children:"平级模式"}),t.jsx(s,{type:"primary",onClick:()=>a("/feat/breadcrumb/flatDetail"),children:"跳转平级详情页"})]})};export{a as default};

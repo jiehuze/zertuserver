@@ -1,9 +1,11 @@
 package services
 
 import (
+	"encoding/hex"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"sync"
+	"time"
 	"zertuserver/internal/pkg/devices"
 )
 
@@ -82,22 +84,34 @@ func (r *rtu) Direction(direction string) error {
 		break
 	}
 
+	address := uint16(0x0001) // Modbus 地址
+	quantity := uint16(1)     // 读取数量
+	data, err := r.rs485Device.ReadHoldingRegisters(address, quantity)
+	if err != nil {
+		log.Error("Error reading registers: ", err)
+	} else {
+		log.Info("Received Modbus hex data: ", hex.EncodeToString(data))
+	}
+
+	// 在这里可以进一步处理数据
+	time.Sleep(1 * time.Second) // 假设设备每 2 秒发送一次数据
+
 	log.Infoln("direction action :", direction)
 	return nil
 }
 
-func MqttWork(msg devices.Message) {
+func (r *rtu) MqttWork(msg devices.Message) {
 
 }
 
 // 工作函数
 func (rs *rtu) work() {
 	// 连接设备
-	//if err := rs.rs485Device.Connect("/dev/tty485_2"); err != nil {
-	//	log.Fatalf("Failed to connect RS485 device: %v", err)
-	//	return
-	//}
-	//
+	if err := rs.rs485Device.Connect("/dev/tty485_2"); err != nil {
+		log.Fatalf("Failed to connect RS485 device: %v", err)
+		return
+	}
+
 	//if err := rs.mqttDevice.Connect(); err != nil {
 	//	log.Fatalf("Failed to connect mqtt device: %v", err)
 	//	return
