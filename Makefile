@@ -30,7 +30,7 @@ mac:
 
 riscv:
 	@echo "building ios $(APP) ..."
-	GOOS=linux GOARCH=riscv64 go build $(LDFLAGS) -o $(OUT_PATH)/$(APP)  main.go
+	GOOS=linux GOARCH=riscv64 CGO_ENABLED=1 CC=riscv64-unknown-linux-gnu-gcc go build $(LDFLAGS) -o $(OUT_PATH)/$(APP)  main.go
 
 tarball:
 	cp -rf conf $(OUT_PATH)/

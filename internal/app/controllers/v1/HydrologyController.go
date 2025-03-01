@@ -5,7 +5,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"zertuserver/internal/app/controllers"
 	"zertuserver/internal/app/models"
-	"zertuserver/internal/app/services"
 )
 
 func HydrologyDeviceDirect(c *gin.Context) {
@@ -13,11 +12,11 @@ func HydrologyDeviceDirect(c *gin.Context) {
 
 	log.Info("direction info : ", direct)
 
-	if err := services.RtuService().Direction(direct); err != nil {
-		log.Error("adjust direct error: ", err)
-		controllers.Response(c, 500, "Success", "")
-		return
-	}
+	//if err := services.RtuService().Direction(direct); err != nil {
+	//	log.Error("adjust direct error: ", err)
+	//	controllers.Response(c, 500, "Success", "")
+	//	return
+	//}
 
 	controllers.Response(c, 200, "Success", "")
 }
@@ -28,7 +27,7 @@ func HydrologyBaseData(c *gin.Context) {
 		Depth:    10,
 		Surface:  12,
 		Bottom:   13,
-		Speed:    14,
+		Speed:    0,
 	}
 
 	log.Info("direction info : ", data)

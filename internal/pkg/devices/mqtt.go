@@ -4,11 +4,9 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-
 	"io/ioutil"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
-	multierror "github.com/hashicorp/go-multierror"
 )
 
 var (
@@ -114,7 +112,9 @@ func (a *MqttDevice) SetClientKey(val string) { a.clientKey = val }
 func (a *MqttDevice) Connect() (err error) {
 	a.client = paho.NewClient(a.createClientOptions())
 	if token := a.client.Connect(); token.Wait() && token.Error() != nil {
-		err = multierror.Append(err, token.Error())
+		//err = multierror.Append(err, token.Error())
+		//return token.Error()
+		return errors.New("connect error!")
 	}
 
 	return
