@@ -1,16 +1,21 @@
 package services
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	"math"
+	"sort"
 	"sync"
 	"time"
 	"zertuserver/internal/app/models"
 	"zertuserver/internal/pkg/code"
 	"zertuserver/internal/pkg/devices"
 	"zertuserver/internal/pkg/task"
+	"zertuserver/pkg/util"
 )
 
 var (
@@ -101,11 +106,19 @@ func (r *rtu) work() {
 	}
 	//模拟设备数据读取
 	go func() {
-		for data := range r.buf {
-			fmt.Printf("Received data: %s\n", data)
-			// 在这里处理接收到的数据
-			r.drive(devices.DirectForward, devices.FrequencyLevel0)
-		}
+		//for data := range r.buf {
+		//	fmt.Printf("Received data: %s\n", data)
+		//	// 在这里处理接收到的数据
+		//	r.drive(devices.DirectForward, devices.FrequencyLevel0)
+		//}
+		//for {
+		//r.readNewSpeed()
+		//r.readNewDepth()
+		//r.readNewDepthAverage(20)
+		r.readNewSpeedAverage(20)
+		time.Sleep(200 * time.Millisecond) // 假设设备每 2 秒发送一次数据
+		//}
+		//time.Sleep(1 * time.Second) // 假设设备每 2 秒发送一次数据
 	}()
 }
 
@@ -141,6 +154,12 @@ func (r *rtu) StopMqttTimerSender() {
 	}
 }
 
+/**
+* 读取缆车数据：
+* 1. 缆车的起点距，高度
+* 2。老设备，可以读取水面，水底，流速
+* 3。新设备需要从另一个485口读取水深和流速
+ */
 func (r *rtu) rs232ReadData(data []byte) {
 	log.Infoln("---------RS232 read: " + hex.EncodeToString(data))
 	parseData, err := code.ParseData(data)
@@ -155,6 +174,7 @@ func (r *rtu) rs232ReadData(data []byte) {
 	log.Info("----- parse data: ", parseData)
 }
 
+// mqtt接收的数据
 // 调整方向
 func (r *rtu) cmdMessage(msg devices.Message) {
 	log.Infoln("message handler topic : " + msg.Topic())
@@ -167,6 +187,7 @@ func (r *rtu) cmdMessage(msg devices.Message) {
 	r.exectCmd(command)
 }
 
+// 接收到的参数
 func (r *rtu) setMessage(msg devices.Message) {
 	log.Infoln("message handler topic : " + msg.Topic())
 	log.Infoln("message handler message : " + string(msg.Payload()))
@@ -179,6 +200,7 @@ func (r *rtu) setMessage(msg devices.Message) {
 	r.status = task.StatusReady //任务准备完成
 }
 
+// mqtt或者 前端发送的指令
 func (r *rtu) exectCmd(command models.Command) {
 	switch command.Cmd {
 	case models.CommandStartTask: //前进
@@ -211,6 +233,7 @@ func (r *rtu) exectCmd(command models.Command) {
  * 开动缆车进行前进后退，设置预定位置开车
  */
 func (r *rtu) drive(direct uint16, speed uint16) {
+	r.motor.SetHandlerSlaveId(0x07)
 	quantity := (direct << 8) | speed
 	data, err := r.motor.ReadHoldingRegisters(uint16(0x0001), quantity)
 	if err != nil {
@@ -222,7 +245,93 @@ func (r *rtu) drive(direct uint16, speed uint16) {
 	//time.Sleep(1 * time.Second) // 假设设备每 2 秒发送一次数据
 }
 
-// 读取旧的流速
-func (r *rtu) readOldSpeed(data code.SWData) {
+// 读取新的流速
+func (r *rtu) readNewSpeed() (int, error) {
+	r.motor.SetHandlerSlaveId(0x01) //从地址为0x01
+	data, err := r.motor.ReadHoldingRegisters(uint16(0x0000), uint16(0x0001))
+	if err != nil {
+		log.Error("Error reading registers: ", err)
+	} else {
+		log.Info("Received Speed hex data: ", hex.EncodeToString(data))
+		log.Info("Received Speed Dex data: ", binary.BigEndian.Uint16(data))
+		return int(binary.BigEndian.Uint16(data)), nil
+	}
 
+	return 0, errors.New("Read speed error!")
+}
+
+// 读取新的水深
+func (r *rtu) readNewDepth() (float32, error) {
+	r.motor.SetHandlerSlaveId(0x08) //从地址为0x01
+	data, err := r.motor.ReadInputRegisters(uint16(0x0065), uint16(0x0002))
+	if err != nil {
+		log.Error("Error reading registers: ", err)
+	} else {
+		log.Info("Received Depth hex data: ", hex.EncodeToString(data))
+		float, _ := util.ParseIEEE754Float(data)
+		log.Info("Received Depth float data: ", float)
+
+		return float, nil
+	}
+	return 0.0, errors.New("read depth error!")
+}
+
+func (r *rtu) readNewSpeedAverage(times int) (float64, error) {
+	var results []int
+	for i := 0; i < times; i++ {
+		speed, err := r.readNewSpeed()
+		if err != nil {
+			continue
+		}
+		results = append(results, speed)
+		time.Sleep(200 * time.Millisecond) // 假设设备每 2 秒发送一次数据
+	}
+	// 排序
+	sort.Ints(results)
+
+	// 取出中间数据（去掉最大 2 个和最小 2 个）
+	validValues := results[2 : len(results)-2]
+
+	// 计算剩余数据的平均值
+	var sum int
+	for _, v := range validValues {
+		sum += v
+	}
+
+	// 计算平均值并取整
+	average := sum / len(validValues)
+
+	// 转换为 m（单位为米），并保留 2 位小数
+	averageInM := float64(average) / 1000.0
+	roundedAverage := math.Round(averageInM*100) / 100 // 保留 2 位小数
+	log.Info("Received Depth average data: ", roundedAverage)
+	return roundedAverage, nil
+}
+
+func (r *rtu) readNewDepthAverage(times int) (float32, error) {
+	var results []float32
+	for i := 0; i < times; i++ {
+		depth, err := r.readNewDepth()
+		if err != nil {
+			continue
+		}
+		results = append(results, depth)
+		time.Sleep(200 * time.Millisecond) // 假设设备每 2 秒发送一次数据
+	}
+	// 排序，保证有序存储
+	sort.Slice(results, func(i, j int) bool {
+		return results[i] < results[j] // 升序排列
+	})
+
+	// 取出中间数据
+	validValues := results[2 : len(results)-2]
+
+	// 计算平均值
+	var sum float32
+	for _, v := range validValues {
+		sum += v
+	}
+	average := sum / float32(len(validValues))
+	log.Info("Received Depth average data: ", average)
+	return average, nil
 }

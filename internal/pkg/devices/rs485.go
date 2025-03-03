@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/goburrow/modbus"
 	log "github.com/sirupsen/logrus"
-	"github.com/tarm/serial"
 	"time"
 )
 
@@ -31,9 +30,10 @@ const (
 
 // RS485Device 代表一个 RS485 设备
 type RS485Device struct {
-	name         string
-	port         *serial.Port
+	name string
+	//port         *serial.Port
 	dataChannel  chan []byte
+	handler      *modbus.RTUClientHandler
 	modbusClient *client
 }
 
@@ -72,37 +72,41 @@ func (r *RS485Device) SetName(s string) {
 	r.name = s
 }
 
+func (r *RS485Device) SetHandlerSlaveId(slaveId byte) {
+	r.handler.SlaveId = slaveId
+}
+
 // Connect 连接到 RS485 设备
 func (r *RS485Device) Connect(port string) error {
 	// 串口连接逻辑
-	config := &serial.Config{
-		Name:        port,
-		Baud:        9600,
-		Size:        8,
-		StopBits:    1, // 1 停止位
-		Parity:      0, // 无校验
-		ReadTimeout: time.Second,
-	}
-
-	portObj, err := serial.OpenPort(config)
-	if err != nil {
-		//log.Error(" open serial port error: " + port)
-		return err
-	}
-	r.port = portObj
-
-	// 设置 Modbus RTU 客户端
-	handler := modbus.NewRTUClientHandler(port) // 传入串口配置
-	handler.BaudRate = 9600
-	handler.DataBits = 8
-	handler.Parity = "N" // 无校验
-	handler.StopBits = 1
-	handler.Timeout = time.Second
-
-	handler.SlaveId = 0x07
+	//config := &serial.Config{
+	//	Name:        port,
+	//	Baud:        9600,
+	//	Size:        8,
+	//	StopBits:    1, // 1 停止位
+	//	Parity:      0, // 无校验
+	//	ReadTimeout: time.Second,
+	//}
+	//
+	//portObj, err := serial.OpenPort(config)
+	//if err != nil {
+	//	//log.Error(" open serial port error: " + port)
+	//	return err
+	//}
+	//r.port = portObj
 
 	// 设置 Modbus RTU 客户端
-	r.modbusClient = NewClient(handler)
+	r.handler = modbus.NewRTUClientHandler(port) // 传入串口配置
+	r.handler.BaudRate = 9600
+	r.handler.DataBits = 8
+	r.handler.Parity = "N" // 无校验
+	r.handler.StopBits = 1
+	r.handler.Timeout = time.Second
+
+	r.handler.SlaveId = 0x07
+
+	// 设置 Modbus RTU 客户端
+	r.modbusClient = NewClient(r.handler)
 
 	log.Printf("Connected to RS485 device %s on port %s", r.name, port)
 	return nil
@@ -110,11 +114,11 @@ func (r *RS485Device) Connect(port string) error {
 
 // Disconnect 断开与 RS485 设备的连接
 func (r *RS485Device) Disconnect() error {
-	if r.port != nil {
-		if err := r.port.Close(); err != nil {
-			return err
-		}
-	}
+	//if r.port != nil {
+	//	if err := r.port.Close(); err != nil {
+	//		return err
+	//	}
+	//}
 	//log.Printf("Disconnected from RS485 device %s", r.name)
 	return nil
 }
@@ -127,6 +131,16 @@ func (r *RS485Device) ReadHoldingRegisters(address uint16, quantity uint16) ([]b
 		return nil, fmt.Errorf("failed to read holding registers: %v", err)
 	}
 	log.Info("Read Holding Registers: ", results)
+	return results, nil
+}
+
+func (r *RS485Device) ReadInputRegisters(address uint16, quantity uint16) ([]byte, error) {
+	// 读取指定地址的 Holding Registers 数据
+	results, err := r.modbusClient.ReadInputRegisters(address, quantity)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read holding registers: %v", err)
+	}
+	log.Info("Read Input Registers: ", results)
 	return results, nil
 }
 
