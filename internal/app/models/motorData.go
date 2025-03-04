@@ -1,6 +1,9 @@
-package code
+package models
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 /*
 *
@@ -14,14 +17,18 @@ import "fmt"
 每组数据加02开始，0D结束。开始握手信号只加0D结束符。
 */
 type State struct {
-	UnderVoltage bool //欠压
-	WaterSurface bool //水面
-	Underwater   bool // 水底
-	FlowRate     bool //流速
+	UnderVoltage   bool      //欠压
+	WaterSurface   bool      //水面
+	Underwater     bool      // 水底
+	FlowRate       bool      //流速
+	SpeedCount     int       //转子数
+	StartSpeedTime time.Time //起始时间
+	EndSpeedTime   time.Time //起始时间
 }
 
-type SWData struct {
-	Status    int     // 状态码
+type MotorData struct {
+	Status    int // 状态码
+	StateFlag State
 	Width     float64 // 距离（宽度）
 	Height    float64 // 高度
 	WidthDir  bool    // 宽度方向，true表示反向，false表示正向
@@ -50,7 +57,7 @@ func parseNum(data []byte, decimalShift int) float64 {
 }
 
 // 解析报文并返回ParsedData结构体
-func ParseData(message []byte) (*SWData, error) {
+func ParseData(message []byte) (*MotorData, error) {
 	// 校验报文长度和开头结尾
 	if len(message) != 10 || message[0] != 0x02 || message[len(message)-1] != 0x0D {
 		return nil, fmt.Errorf("invalid message format")
@@ -81,7 +88,7 @@ func ParseData(message []byte) (*SWData, error) {
 	}
 
 	// 返回解析结果
-	return &SWData{
+	return &MotorData{
 		Status:    status,
 		Width:     width,
 		Height:    height,

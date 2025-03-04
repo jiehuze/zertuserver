@@ -7,7 +7,7 @@ import (
 
 const (
 	StatusIdle     int = iota // 任务空闲
-	StatusReady               // 任务启动
+	StatusReady               // 任务准备
 	StatusStarted             // 任务启动
 	StatusRunning             // 任务执行中
 	StatusStopped             // 任务停止

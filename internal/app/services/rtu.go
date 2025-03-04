@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 	"zertuserver/internal/app/models"
-	"zertuserver/internal/pkg/code"
 	"zertuserver/internal/pkg/devices"
 	"zertuserver/internal/pkg/task"
 	"zertuserver/pkg/util"
@@ -35,11 +34,8 @@ type rtu struct {
 	newMeter   *devices.RS485Device
 	oldMeter   *devices.RS232Device
 	mqttDevice *devices.MqttDevice
-	status     int
-	Task       task.Task
-	buf        chan string
-	deviceType int
-	swDate     code.SWData
+	motorData  models.MotorData  //电机数据
+	sensorData models.SensorData //镜像数据
 	ticker     *time.Ticker
 	taskConfig *models.TaskConfig
 }
@@ -52,10 +48,7 @@ func RtuService() *rtu {
 			newMeter:   devices.NewRS485Device("RS485_meter"),
 			oldMeter:   devices.NewRS232Device("RS232_meter"),
 			mqttDevice: devices.NewMqttDevice("tcp://39.107.116.95:1883", "mactest"),
-			status:     task.StatusIdle,
-			buf:        make(chan string),
-			deviceType: DeviceTypeIdle,
-			swDate:     code.SWData{},
+			motorData:  models.MotorData{},
 			ticker:     nil,
 		}
 
@@ -73,10 +66,6 @@ func (r *rtu) Start() error {
 func (r *rtu) Stop() error {
 	log.Infoln("rtu server stop")
 	return nil
-}
-
-func (r *rtu) SendBuf(buf string) {
-	r.buf <- buf
 }
 
 // 工作函数
@@ -104,35 +93,39 @@ func (r *rtu) work() {
 		_, _ = r.mqttDevice.Subscribe("/sys/rtu/config/set", 2, r.setMessage)
 		_, _ = r.mqttDevice.Subscribe("/sys/rtu/control/set", 2, r.cmdMessage)
 	}
-	//模拟设备数据读取
+
+	//r.test()
+}
+
+func (r *rtu) test() {
 	go func() {
 		//for data := range r.buf {
 		//	fmt.Printf("Received data: %s\n", data)
 		//	// 在这里处理接收到的数据
-		//	r.drive(devices.DirectForward, devices.FrequencyLevel0)
+		r.drive(devices.DirectForward, devices.FrequencyLevel0)
 		//}
 		//for {
 		//r.readNewSpeed()
 		//r.readNewDepth()
 		//r.readNewDepthAverage(20)
-		r.readNewSpeedAverage(20)
-		time.Sleep(200 * time.Millisecond) // 假设设备每 2 秒发送一次数据
+		//r.readNewSpeedAverage(20)
+		//time.Sleep(200 * time.Millisecond) // 假设设备每 2 秒发送一次数据
 		//}
 		//time.Sleep(1 * time.Second) // 假设设备每 2 秒发送一次数据
 	}()
 }
 
-// 定时发送状到mqtt
+// 定时发送状到mqtt,sensor data
 func (r *rtu) startMqttTimerSender(interval time.Duration) {
 	r.ticker = time.NewTicker(interval)
 	go func() {
 		defer r.ticker.Stop()
 		for range r.ticker.C {
 			// 模拟数据,这个地方应该是发送状态数据，json格式
-			message := fmt.Sprintf("Hello MQTT at %s", time.Now().Format(time.RFC3339))
+			//message := fmt.Sprintf("Hello MQTT at %s", time.Now().Format(time.RFC3339))
 
 			// 将状态数据序列化为 JSON
-			jsonData, err := json.Marshal(message)
+			jsonData, err := json.Marshal(r.sensorData)
 			if err != nil {
 				fmt.Printf("Failed to marshal status: %v\n", err)
 				continue
@@ -141,7 +134,7 @@ func (r *rtu) startMqttTimerSender(interval time.Duration) {
 			// 发布消息
 			success := r.mqttDevice.Publish("/sys/{device_id}/status/upload", jsonData)
 			if success == false {
-				fmt.Printf("Message sent error: %s\n", message)
+				fmt.Printf("Message sent error: %s\n", r.sensorData)
 			}
 		}
 	}()
@@ -162,16 +155,21 @@ func (r *rtu) StopMqttTimerSender() {
  */
 func (r *rtu) rs232ReadData(data []byte) {
 	log.Infoln("---------RS232 read: " + hex.EncodeToString(data))
-	parseData, err := code.ParseData(data)
+	swData, err := models.ParseData(data)
 	if err != nil {
 		log.Warnf("prase data error: " + err.Error())
 		return
 	}
-	if r.deviceType == DeviceTypeNew || r.deviceType == DeviceTypeIdle {
-		return
-	}
+	log.Info("----- parse data: ", swData)
+	r.sensorData.Data.Distance = swData.Width
+	r.sensorData.Data.Height = swData.Height
 
-	log.Info("----- parse data: ", parseData)
+	if r.sensorData.Data.TaskStatus == task.StatusReady {
+		if r.taskConfig.Device.DeviceType != 4 {
+			//需要采集水面，水深，水底，水速信号
+			r.readOldInWater(swData)
+		}
+	}
 }
 
 // mqtt接收的数据
@@ -187,7 +185,7 @@ func (r *rtu) cmdMessage(msg devices.Message) {
 	r.exectCmd(command)
 }
 
-// 接收到的参数
+// 接收到的参数,配置的任务参数
 func (r *rtu) setMessage(msg devices.Message) {
 	log.Infoln("message handler topic : " + msg.Topic())
 	log.Infoln("message handler message : " + string(msg.Payload()))
@@ -197,7 +195,7 @@ func (r *rtu) setMessage(msg devices.Message) {
 		log.Warn("It is error to parse task config")
 		return
 	}
-	r.status = task.StatusReady //任务准备完成
+	r.sensorData.Data.TaskStatus = task.StatusReady //任务准备完成
 }
 
 // mqtt或者 前端发送的指令
@@ -214,15 +212,15 @@ func (r *rtu) exectCmd(command models.Command) {
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
 	case models.CommandStopCurrentAction:
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
-	case models.CommandMoveUp:
+	case models.CommandMoveUp: //上
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
-	case models.CommandMoveDown:
+	case models.CommandMoveDown: //下
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
-	case models.CommandReset:
+	case models.CommandReset: //复位
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
-	case models.CommandSpeedTestStart:
+	case models.CommandSpeedTestStart: //测试开始
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
-	case models.CommandContinueExecution:
+	case models.CommandContinueExecution: //继续执行
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
 	default:
 		fmt.Printf("Unknown command: %s\n", models.CommandStrings[command.Cmd])
@@ -261,7 +259,7 @@ func (r *rtu) readNewSpeed() (int, error) {
 }
 
 // 读取新的水深
-func (r *rtu) readNewDepth() (float32, error) {
+func (r *rtu) readNewDepth() (float64, error) {
 	r.motor.SetHandlerSlaveId(0x08) //从地址为0x01
 	data, err := r.motor.ReadInputRegisters(uint16(0x0065), uint16(0x0002))
 	if err != nil {
@@ -308,8 +306,8 @@ func (r *rtu) readNewSpeedAverage(times int) (float64, error) {
 	return roundedAverage, nil
 }
 
-func (r *rtu) readNewDepthAverage(times int) (float32, error) {
-	var results []float32
+func (r *rtu) readNewDepthAverage(times int) (float64, error) {
+	var results []float64
 	for i := 0; i < times; i++ {
 		depth, err := r.readNewDepth()
 		if err != nil {
@@ -327,11 +325,208 @@ func (r *rtu) readNewDepthAverage(times int) (float32, error) {
 	validValues := results[2 : len(results)-2]
 
 	// 计算平均值
-	var sum float32
+	var sum float64
 	for _, v := range validValues {
 		sum += v
 	}
-	average := sum / float32(len(validValues))
+	average := sum / float64(len(validValues))
 	log.Info("Received Depth average data: ", average)
 	return average, nil
+}
+
+// 采集旧设备的入水信号
+func (r *rtu) readOldInWater(motorData *models.MotorData) {
+	// 记录水平状态
+	if motorData.Status == 1 && r.motorData.StateFlag.WaterSurface == false {
+		r.motorData.StateFlag.WaterSurface = true    //入水
+		r.sensorData.Data.InWater = 1                //入水
+		r.sensorData.Data.Surface = motorData.Height //记录水面高度
+		fmt.Println("水平状态已记录")
+	}
+
+	// 记录水底状态
+	if motorData.Status == 2 && r.motorData.StateFlag.Underwater == false {
+		r.motorData.StateFlag.WaterSurface = true                                           //入水
+		r.sensorData.Data.Bottom = motorData.Width                                          //记录水底高度
+		r.sensorData.Data.WaterDepth = r.sensorData.Data.Bottom - r.sensorData.Data.Surface //水深
+		fmt.Println("水底状态已记录")
+
+		//需要停车
+		r.drive(devices.DirectStop, devices.FrequencyLevel0) //停车
+	}
+}
+
+func (r *rtu) startReadOldSpeed(motorData *models.MotorData) {
+	if motorData.Status == 5 {
+		if r.motorData.StateFlag.FlowRate == false {
+			r.motorData.StateFlag.StartSpeedTime = time.Now()
+			r.motorData.StateFlag.FlowRate = true
+		} else {
+			r.motorData.StateFlag.SpeedCount++
+			if time.Since(r.motorData.StateFlag.StartSpeedTime) > 30*time.Second {
+				r.motorData.StateFlag.EndSpeedTime = time.Now()
+				//计算速度
+				r.sensorData.Data.Speed = 1.2 //先默认写了
+			}
+		}
+	}
+}
+
+/*********************************任务********************************/
+func (r *rtu) moveToTargetDistance(target float64) bool {
+	//先启动缆车
+	r.drive(devices.DirectForward, devices.FrequencyLevel3)
+	for {
+		//相差0.2，停车
+		if math.Abs(r.motorData.Width-target) <= 0.2 {
+			r.drive(devices.DirectStop, devices.FrequencyLevel0) //停车
+			return true
+		}
+	}
+
+	if r.motorData.Width > target {
+		if r.motorData.Width-target > 5.0 {
+			r.drive(devices.DirectBackward, devices.FrequencyLevel7) //快速运动
+		} else {
+			r.drive(devices.DirectBackward, devices.FrequencyLevel1) //降速运动
+		}
+
+	} else if r.motorData.Width < target {
+		if r.motorData.Width-target > 5.0 {
+			r.drive(devices.DirectForward, devices.FrequencyLevel7)
+		} else {
+			r.drive(devices.DirectForward, devices.FrequencyLevel1)
+		}
+	}
+
+	return false
+}
+
+func (r *rtu) moveToTestDepth() {
+	r.drive(devices.DirectDown, devices.FrequencyLevel4) //放缆绳
+	//如果是新设备
+	if r.taskConfig.Device.DeviceType == 4 {
+		//测试水面和水深
+		for {
+			depth, _ := r.readNewDepth()
+			if r.motorData.StateFlag.WaterSurface == false && depth > 0 {
+				r.motorData.StateFlag.WaterSurface = true //入水
+				r.sensorData.Data.InWater = 1             //入水
+				//需要停车，测试水深
+				r.drive(devices.DirectStop, devices.FrequencyLevel0)
+				break
+			}
+			time.Sleep(200 * time.Millisecond) // 假设设备每 2 秒发送一次数据
+		}
+		//测试水深
+		depth, _ := r.readNewDepthAverage(20)
+		r.sensorData.Data.WaterDepth = depth //获取到水深
+
+	} else {
+		//旧设备，直接启动了，
+	}
+}
+
+func (r *rtu) moveToTargetHeight(target float64) bool {
+	for {
+		if math.Abs(r.motorData.Height-target) <= 0.2 {
+			//需要停车，测试流速
+			r.drive(devices.DirectStop, devices.FrequencyLevel0)
+			return true
+		}
+
+		if r.motorData.Height-target > 0 { //向上
+			r.drive(devices.DirectUp, devices.FrequencyLevel3)
+		}
+
+		if r.motorData.Height-target < 0 { //向下
+			r.drive(devices.DirectDown, devices.FrequencyLevel3)
+		}
+	}
+}
+
+// 这个再调整
+func (r *rtu) reset() {
+	r.moveToTargetHeight(3.0)
+	r.moveToTargetDistance(50.0)
+}
+
+func (r *rtu) startTestSpeed() {
+	if r.taskConfig.Device.DeviceType == 4 {
+		average, _ := r.readNewSpeedAverage(20)
+		r.sensorData.Data.Speed = average
+	} else {
+		//通知232测试水流速度,需要定义一些状态
+	}
+}
+
+func (r *rtu) createReport() {
+
+}
+
+// 手动
+func (r *rtu) startManualTask() {
+	r.motorData.StateFlag = models.State{
+		UnderVoltage: false, //欠压
+		WaterSurface: false, //水面
+		Underwater:   false, // 水底
+		FlowRate:     false, //流速
+		SpeedCount:   0,
+	}
+	//如果是新设备
+	r.sensorData.Data.Distance = r.motorData.Width //测点距
+	r.startMqttTimerSender(1 * time.Second)        //1秒发送一次数据
+	if r.taskConfig.Device.DeviceType == 4 {
+		//测试水面和水深
+		for {
+			depth, _ := r.readNewDepth()
+			if r.motorData.StateFlag.WaterSurface == false && depth > 0 {
+				r.motorData.StateFlag.WaterSurface = true //入水
+				r.sensorData.Data.InWater = 1             //入水
+				//需要停车，测试水深
+				r.drive(devices.DirectStop, devices.FrequencyLevel0)
+				break
+			}
+			time.Sleep(200 * time.Millisecond) // 假设设备每 2 秒发送一次数据
+		}
+		//测试水深
+		depth, _ := r.readNewDepthAverage(20)
+		r.sensorData.Data.WaterDepth = depth //获取到水深
+
+	} else {
+		//旧设备，直接启动了，
+	}
+}
+
+// 半自动
+func (r *rtu) startSemiTask() {
+	position := r.taskConfig.Position
+	if len(position) <= 0 { //直接结束
+		return
+	}
+	for i := 0; i < len(position); i++ {
+		targetPosition := position[i]
+		r.moveToTargetDistance(targetPosition.DistanceFromStart)
+		r.moveToTargetHeight(r.sensorData.Data.WaterDepth*0.6 + r.sensorData.Data.Surface)
+		r.startTestSpeed()
+		r.moveToTargetHeight(r.sensorData.Data.Surface - 1.0)
+		r.createReport() //生成报告，阶段完成
+	}
+}
+
+// 自动
+func (r *rtu) startAutoTask() {
+	position := r.taskConfig.Position
+	if len(position) <= 0 { //直接结束
+		return
+	}
+	for i := 0; i < len(position); i++ {
+		targetPosition := position[i]
+		r.moveToTargetDistance(targetPosition.DistanceFromStart)
+		r.moveToTargetHeight(r.sensorData.Data.WaterDepth*0.6 + r.sensorData.Data.Surface) //到底测速点
+		r.startTestSpeed()
+		r.moveToTargetHeight(r.sensorData.Data.Surface - 1.0) //到达回收点
+		r.createReport()                                      //生成报告，阶段完成
+	}
+	r.reset() //复位
 }

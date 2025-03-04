@@ -13,7 +13,7 @@ func GetJson(v interface{}) string {
 }
 
 // ParseIEEE754Float 解析小端存储的 IEEE 754 单精度浮点数
-func ParseIEEE754Float(data []byte) (float32, error) {
+func ParseIEEE754Float(data []byte) (float64, error) {
 	if len(data) != 4 {
 		return 0, fmt.Errorf("数据长度错误，期望 4 字节，实际 %d 字节", len(data))
 	}
@@ -22,8 +22,8 @@ func ParseIEEE754Float(data []byte) (float32, error) {
 	reversed := []byte{data[2], data[3], data[0], data[1]}
 
 	// 转换为 uint32
-	bits := binary.BigEndian.Uint32(reversed)
+	bits := binary.BigEndian.Uint64(reversed)
 
 	// 转换为 IEEE 754 浮点数
-	return math.Float32frombits(bits), nil
+	return math.Float64frombits(bits), nil
 }
