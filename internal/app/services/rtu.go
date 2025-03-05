@@ -28,28 +28,37 @@ const (
 	DeviceTypeNew
 )
 
+const (
+	PositionStatusIdle    = iota
+	PositionStatusInWater //入水
+	PositionStatusDepth   //测试水深
+	PositionStatusSpeed   //测试流速
+)
+
 type rtu struct {
-	name       string
-	motor      *devices.RS485Device
-	newMeter   *devices.RS485Device
-	oldMeter   *devices.RS232Device
-	mqttDevice *devices.MqttDevice
-	motorData  models.MotorData  //电机数据
-	sensorData models.SensorData //镜像数据
-	ticker     *time.Ticker
-	taskConfig *models.TaskConfig
+	name           string
+	motor          *devices.RS485Device
+	newMeter       *devices.RS485Device
+	oldMeter       *devices.RS232Device
+	mqttDevice     *devices.MqttDevice
+	motorData      models.MotorData  //电机数据
+	sensorData     models.SensorData //镜像数据
+	ticker         *time.Ticker
+	taskConfig     *models.TaskConfig
+	positionStatus int
 }
 
 func RtuService() *rtu {
 	rtuOnce.Do(func() {
 		rtuImpl = &rtu{
-			name:       "rtuServer",
-			motor:      devices.NewRS485Device("RS485_motor"),
-			newMeter:   devices.NewRS485Device("RS485_meter"),
-			oldMeter:   devices.NewRS232Device("RS232_meter"),
-			mqttDevice: devices.NewMqttDevice("tcp://39.107.116.95:1883", "mactest"),
-			motorData:  models.MotorData{},
-			ticker:     nil,
+			name:           "rtuServer",
+			motor:          devices.NewRS485Device("RS485_motor"),
+			newMeter:       devices.NewRS485Device("RS485_meter"),
+			oldMeter:       devices.NewRS232Device("RS232_meter"),
+			mqttDevice:     devices.NewMqttDevice("tcp://39.107.116.95:1883", "mactest"),
+			motorData:      models.MotorData{},
+			ticker:         nil,
+			positionStatus: PositionStatusIdle,
 		}
 
 		log.Infoln("rtuServer init finish")
@@ -121,10 +130,8 @@ func (r *rtu) startMqttTimerSender(interval time.Duration) {
 	go func() {
 		defer r.ticker.Stop()
 		for range r.ticker.C {
-			// 模拟数据,这个地方应该是发送状态数据，json格式
-			//message := fmt.Sprintf("Hello MQTT at %s", time.Now().Format(time.RFC3339))
-
 			// 将状态数据序列化为 JSON
+			r.sensorData.TS = time.Now().UnixNano() / int64(time.Millisecond)
 			jsonData, err := json.Marshal(r.sensorData)
 			if err != nil {
 				fmt.Printf("Failed to marshal status: %v\n", err)
@@ -155,20 +162,31 @@ func (r *rtu) StopMqttTimerSender() {
  */
 func (r *rtu) rs232ReadData(data []byte) {
 	log.Infoln("---------RS232 read: " + hex.EncodeToString(data))
-	swData, err := models.ParseData(data)
+	motorData, err := models.ParseData(data)
 	if err != nil {
 		log.Warnf("prase data error: " + err.Error())
 		return
 	}
-	log.Info("----- parse data: ", swData)
-	r.sensorData.Data.Distance = swData.Width
-	r.sensorData.Data.Height = swData.Height
+	log.Info("----- parse data: ", motorData)
+	r.sensorData.Data.Distance = motorData.Width
+	r.sensorData.Data.Height = motorData.Height
 
-	if r.sensorData.Data.TaskStatus == task.StatusReady {
+	if r.sensorData.Data.TaskStatus != task.StatusIdle {
 		if r.taskConfig.Device.DeviceType != 4 {
-			//需要采集水面，水深，水底，水速信号
-			r.readOldInWater(swData)
+			//允许入水或者测水深了，才开始
+			if r.positionStatus == PositionStatusInWater || r.positionStatus == PositionStatusDepth {
+				//需要采集水面，水深，水底，水速信号
+				r.readOldInWater(motorData)
+			}
+
+			if r.positionStatus == PositionStatusSpeed {
+				r.startReadOldSpeed(motorData)
+			}
 		}
+	}
+
+	if motorData.Status == 5 { //到河底一定要停车
+		r.drive(devices.DirectStop, devices.FrequencyLevel0) //停车
 	}
 }
 
@@ -195,7 +213,17 @@ func (r *rtu) setMessage(msg devices.Message) {
 		log.Warn("It is error to parse task config")
 		return
 	}
+	log.Info("taskConfig: ", r.taskConfig)
 	r.sensorData.Data.TaskStatus = task.StatusReady //任务准备完成
+
+	ack := models.Ack{ID: r.taskConfig.ID, Ack: 1, Ts: time.Now().UnixMilli()}
+	// 将结构体实例转换为JSON字符串
+	jsonData, err := json.Marshal(ack)
+	if err != nil {
+		fmt.Println("Error marshalling to JSON:", err)
+		return
+	}
+	r.mqttDevice.Publish("/sys/rtu/config/set_ack", jsonData)
 }
 
 // mqtt或者 前端发送的指令
@@ -231,6 +259,7 @@ func (r *rtu) exectCmd(command models.Command) {
  * 开动缆车进行前进后退，设置预定位置开车
  */
 func (r *rtu) drive(direct uint16, speed uint16) {
+	r.sensorData.Data.MotorStatus = int(direct)
 	r.motor.SetHandlerSlaveId(0x07)
 	quantity := (direct << 8) | speed
 	data, err := r.motor.ReadHoldingRegisters(uint16(0x0001), quantity)
@@ -239,8 +268,6 @@ func (r *rtu) drive(direct uint16, speed uint16) {
 	} else {
 		log.Info("Received Modbus hex data: ", hex.EncodeToString(data))
 	}
-	// 在这里可以进一步处理数据
-	//time.Sleep(1 * time.Second) // 假设设备每 2 秒发送一次数据
 }
 
 // 读取新的流速
@@ -445,10 +472,10 @@ func (r *rtu) moveToTargetHeight(target float64) bool {
 	}
 }
 
-// 这个再调整
+// 重置
 func (r *rtu) reset() {
-	r.moveToTargetHeight(3.0)
-	r.moveToTargetDistance(50.0)
+	r.moveToTargetHeight(r.taskConfig.Params.MaxHeightAboveWater)
+	r.moveToTargetDistance(r.taskConfig.Params.MinDistanceFromStart)
 }
 
 func (r *rtu) startTestSpeed() {
@@ -476,6 +503,9 @@ func (r *rtu) startManualTask() {
 	//如果是新设备
 	r.sensorData.Data.Distance = r.motorData.Width //测点距
 	r.startMqttTimerSender(1 * time.Second)        //1秒发送一次数据
+
+	//需要知道去哪个位置测试
+
 	if r.taskConfig.Device.DeviceType == 4 {
 		//测试水面和水深
 		for {
@@ -494,6 +524,7 @@ func (r *rtu) startManualTask() {
 		r.sensorData.Data.WaterDepth = depth //获取到水深
 
 	} else {
+		r.positionStatus = PositionStatusInWater
 		//旧设备，直接启动了，
 	}
 }

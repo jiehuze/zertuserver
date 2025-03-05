@@ -5,7 +5,7 @@ type Data struct {
 	WaterDepth        float64 `json:"waterDepth"`        //水深
 	Height            float64 `json:"height"`            // 高度，单位为米，浮点数，保留小数点后2位
 	MeasurementHeight float64 `json:"measurementHeight"` // 测点高度，单位为米，浮点数，保留小数点后2位
-	Status            int     `json:"status"`            // 状态，1：前进，2：后退，3：下，4：上
+	MotorStatus       int     `json:"motorStatus"`       // 电机状态，0x05：前进，0x09：后退，0x0A：上升，0x11：下降，0x13：停止
 	Surface           float64 `json:"surface"`           // 水面高度，单位为米，浮点数，保留小数点后2位
 	Bottom            float64 `json:"bottom"`            // 水底高度，单位为米，浮点数，保留小数点后2位
 	InWater           int     `json:"inWater"`           // 设备状态，1：在水中，0：不在水中

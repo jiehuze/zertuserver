@@ -44,6 +44,17 @@ type Params struct {
 	MaxHorizontalMotorSpeed   float64 `json:"maxHorizontalMotorSpeed"`   // 水平电机最大速度，单位为米/秒
 	HorizontalPreStopDistance float64 `json:"horizontalPreStopDistance"` // 水平预停车距离，单位为米
 	VerticalPreStopDistance   float64 `json:"verticalPreStopDistance"`   // 垂直预停车距离，单位为米
+	MinDistanceFromStart      float64 `json:"minDistanceFromStart"`      // 最小起点距
+	MaxDistanceFromStart      float64 `json:"maxDistanceFromStart"`      // 最大起点距
+	MaxHeightAboveWater       float64 `json:"maxHeightAboveWater"`       // 最大出水面高度
+	HeightAboveWater          float64 `json:"heightAboveWater"`          // 出水高度
+}
+
+// 定义整个数据结构
+type Ack struct {
+	ID  string `json:"id"`  // 所要应答的指令id
+	Ack int    `json:"ack"` // 1 已接收 2 执行中 3 执行成功 4 执行失败 5 未执行
+	Ts  int64  `json:"ts"`  // 时间戳，使用int64来存储毫秒级时间戳
 }
 
 func ParseTaskConfig(data []byte) (*TaskConfig, error) {
