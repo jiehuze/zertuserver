@@ -8,28 +8,30 @@ import (
 // 定义操作命令的“枚举”
 
 const (
-	CommandStartTask         int = iota + 1 // 开始任务
-	CommandStopTask                         // 终止任务
+	CommandSwitch            int = iota + 1 //开关
+	CommandStop                             // 停止
 	CommandMoveForward                      // 前进
 	CommandMoveBackward                     // 后退
 	CommandMoveUp                           // 上移
 	CommandMoveDown                         // 下移
-	CommandStopCurrentAction                // 停止当前动作
 	CommandReset                            // 复位
-	CommandSpeedTestStart                   // 测速开始（设备入水后自动开始，无用）
+	CommandStartTask                        // 开始任务
+	CommandStopTask                         // 终止任务
+	CommandSpeedTestStart                   // 测速开始
 	CommandContinueExecution                // 继续执行
 )
 
 var CommandStrings = map[int]string{
+	CommandSwitch:            "开关",
 	CommandStartTask:         "开始任务",
 	CommandStopTask:          "终止任务",
 	CommandMoveForward:       "前进",
 	CommandMoveBackward:      "后退",
 	CommandMoveUp:            "上移",
 	CommandMoveDown:          "下移",
-	CommandStopCurrentAction: "停止当前动作",
+	CommandStop:              "停止当前动作",
 	CommandReset:             "复位",
-	CommandSpeedTestStart:    "测速开始（设备入水后自动开始，无用）",
+	CommandSpeedTestStart:    "测速开始",
 	CommandContinueExecution: "继续执行",
 }
 

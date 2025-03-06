@@ -229,25 +229,35 @@ func (r *rtu) setMessage(msg devices.Message) {
 // mqtt或者 前端发送的指令
 func (r *rtu) exectCmd(command models.Command) {
 	switch command.Cmd {
-	case models.CommandStartTask: //前进
-		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
-		r.drive(devices.DirectForward, devices.FrequencyLevel0)
-	case models.CommandStopTask: //前进
-		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
 	case models.CommandMoveForward: //前进
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
+		r.drive(devices.DirectForward, devices.FrequencyLevel0)
 	case models.CommandMoveBackward: //后退
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
-	case models.CommandStopCurrentAction:
+		r.drive(devices.DirectBackward, devices.FrequencyLevel0)
+	case models.CommandStop:
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
+		r.drive(devices.DirectStop, devices.FrequencyLevel0)
 	case models.CommandMoveUp: //上
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
+		r.drive(devices.DirectUp, devices.FrequencyLevel0)
 	case models.CommandMoveDown: //下
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
+		r.drive(devices.DirectDown, devices.FrequencyLevel0)
 	case models.CommandReset: //复位
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
-	case models.CommandSpeedTestStart: //测试开始
+		r.reset()
+	case models.CommandStartTask: //前进
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
+	case models.CommandStopTask: //前进
+		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
+	case models.CommandSpeedTestStart: //测试水流速
+		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
+		if r.taskConfig.Device.DeviceType != 4 {
+			r.positionStatus = PositionStatusSpeed //开始测水速
+		} else {
+			r.readNewSpeedAverage(20)
+		}
 	case models.CommandContinueExecution: //继续执行
 		fmt.Printf("command: %s\n", models.CommandStrings[command.Cmd])
 	default:
@@ -301,6 +311,7 @@ func (r *rtu) readNewDepth() (float64, error) {
 	return 0.0, errors.New("read depth error!")
 }
 
+// 读取新设备的水流速
 func (r *rtu) readNewSpeedAverage(times int) (float64, error) {
 	var results []int
 	for i := 0; i < times; i++ {
@@ -333,6 +344,7 @@ func (r *rtu) readNewSpeedAverage(times int) (float64, error) {
 	return roundedAverage, nil
 }
 
+// 读取新设备测试的水深
 func (r *rtu) readNewDepthAverage(times int) (float64, error) {
 	var results []float64
 	for i := 0; i < times; i++ {
@@ -383,6 +395,7 @@ func (r *rtu) readOldInWater(motorData *models.MotorData) {
 	}
 }
 
+// 读取旧设备的水流速
 func (r *rtu) startReadOldSpeed(motorData *models.MotorData) {
 	if motorData.Status == 5 {
 		if r.motorData.StateFlag.FlowRate == false {
@@ -400,6 +413,7 @@ func (r *rtu) startReadOldSpeed(motorData *models.MotorData) {
 }
 
 /*********************************任务********************************/
+//移动到目标距离
 func (r *rtu) moveToTargetDistance(target float64) bool {
 	//先启动缆车
 	r.drive(devices.DirectForward, devices.FrequencyLevel3)
@@ -429,6 +443,7 @@ func (r *rtu) moveToTargetDistance(target float64) bool {
 	return false
 }
 
+// 移动到测速深度
 func (r *rtu) moveToTestDepth() {
 	r.drive(devices.DirectDown, devices.FrequencyLevel4) //放缆绳
 	//如果是新设备
@@ -454,6 +469,7 @@ func (r *rtu) moveToTestDepth() {
 	}
 }
 
+// 移动到目标高度
 func (r *rtu) moveToTargetHeight(target float64) bool {
 	for {
 		if math.Abs(r.motorData.Height-target) <= 0.2 {
@@ -491,7 +507,7 @@ func (r *rtu) createReport() {
 
 }
 
-// 手动
+// 手动，只配置基础参数即可
 func (r *rtu) startManualTask() {
 	r.motorData.StateFlag = models.State{
 		UnderVoltage: false, //欠压
